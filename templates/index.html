@@ -7,7 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { padding: 20px; }
-        .container { max-width: 1600px; }
+        .container { max-width: 1800px; }
         h1 { font-size: 2rem; margin-bottom: 20px; }
         .status-bar { font-size: 0.9rem; color: #198754; margin-bottom: 10px; font-weight: bold;}
         th { cursor: pointer; user-select: none; vertical-align: middle; }
@@ -16,7 +16,7 @@
         .sort-asc::after { content: ' ↑'; opacity: 1; }
         .sort-desc::after { content: ' ↓'; opacity: 1; }
         
-        /* Spread input stili */
+        /* Input stili */
         .spread-input-group { width: 140px; }
         .spread-input-group input { text-align: center; font-weight: bold; }
         /* Tablo hücre hizalamaları */
@@ -50,11 +50,20 @@
                     <option value="">Tümü</option>
                 </select>
             </div>
-            <div class="col-md-4 d-flex align-items-end">
+            
+            <!-- Bulk Updates -->
+            <div class="col-md-3 d-flex align-items-end">
                 <div class="input-group input-group-sm">
                     <span class="input-group-text">Toplu Spread (Kr)</span>
-                    <input type="number" id="bulk-spread-input" class="form-control" placeholder="Örn: 5">
-                    <button class="btn btn-primary" onclick="applyBulkSpread()">Uygula</button>
+                    <input type="number" id="bulk-spread-tl-input" class="form-control" placeholder="Örn: 5">
+                    <button class="btn btn-primary" onclick="applyBulkSpreadTL()">Uygula</button>
+                </div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">Toplu Spread Vol (%)</span>
+                    <input type="number" id="bulk-spread-vol-input" class="form-control" placeholder="Örn: 5">
+                    <button class="btn btn-warning" onclick="applyBulkSpreadVol()">Uygula</button>
                 </div>
             </div>
         </div>
@@ -71,6 +80,7 @@
                         <th onclick="sortTable('Volatilite')" class="sort-icon" id="th-Volatilite">Volatilite</th>
                         <th onclick="sortTable('FiyatRaw')" class="sort-icon" id="th-FiyatRaw">Teorik Fiyat</th>
                         <th>Spread (Kuruş)</th>
+                        <th>Spread Vol (%)</th>
                         <th>Ask Fiyat</th>
                     </tr>
                 </thead>
@@ -82,13 +92,38 @@
     </div>
 
     <script>
+        // --- Black-Scholes Implementation (Client Side) ---
+        function cumulativeDistribution(x) {
+            var t = 1 / (1 + 0.2316419 * Math.abs(x));
+            var d = 0.3989422804014337 * Math.exp(-x * x / 2);
+            var prob = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+            if (x > 0) prob = 1 - prob;
+            return prob;
+        }
+
+        function blackScholes(S, K, T, sigma, type) {
+            if (T <= 0) {
+                return type === 'Call' ? Math.max(0, S - K) : Math.max(0, K - S);
+            }
+            var d1 = (Math.log(S / K) + (0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+            var d2 = d1 - sigma * Math.sqrt(T);
+            
+            if (type === 'Call') {
+                return S * cumulativeDistribution(d1) - K * cumulativeDistribution(d2);
+            } else {
+                return K * cumulativeDistribution(-d2) - S * cumulativeDistribution(-d1);
+            }
+        }
+
+        // --- Application Logic ---
         let globalData = [];
         let sortCol = 'Opsiyon';
         let sortAsc = true;
         let isFilterInitialized = false;
         
-        // Spread değerlerini saklamak için obje: { 'OpsiyonAdi': intValue }
-        let spreadState = {};
+        // Spread states
+        let spreadTLState = {}; // { 'OpsiyonAdi': intValue (kuruş) }
+        let spreadVolState = {}; // { 'OpsiyonAdi': floatValue (%) }
 
         function fetchData() {
             fetch('/api/data')
@@ -161,62 +196,81 @@
             renderTable();
         }
 
-        // Spread Güncelleme Fonksiyonları
-        window.updateSpread = function(opsiyon, change) {
-            if (!spreadState[opsiyon]) spreadState[opsiyon] = 0;
-            spreadState[opsiyon] += change;
+        // --- Spread Updates ---
+
+        // TL Spread
+        window.updateSpreadTL = function(opsiyon, change) {
+            if (!spreadTLState[opsiyon]) spreadTLState[opsiyon] = 0;
+            spreadTLState[opsiyon] += change;
             renderTable();
         };
 
-        window.setSpread = function(opsiyon, value) {
-            // Boş string gelirse (kullanıcı her şeyi silerse) 0 yapma, boş bırakmaya izin ver
-            // Ancak hesaplama için bir değer lazım. State'i güncelleyelim.
+        window.setSpreadTL = function(opsiyon, value) {
             if (value === "") {
-                spreadState[opsiyon] = 0; // Hesaplama için 0
-                // Input'ta görsel olarak boş kalmasını istiyorsak burası biraz karışır çünkü 
-                // renderTable sürekli çağrılıyor ve state'ten okuyor.
-                // Basitlik adına parse edip kaydedelim.
+                spreadTLState[opsiyon] = 0;
             } else {
                 let val = parseInt(value);
                 if (isNaN(val)) val = 0;
-                spreadState[opsiyon] = val;
+                spreadTLState[opsiyon] = val;
             }
-            // renderTable() burada çağırmıyoruz, otomatik döngüyü bekliyoruz veya 
-            // anlık tepki istiyorsak:
             renderTable(); 
         };
 
-        window.applyBulkSpread = function() {
-            const bulkVal = parseInt(document.getElementById('bulk-spread-input').value);
+        window.applyBulkSpreadTL = function() {
+            const bulkVal = parseInt(document.getElementById('bulk-spread-tl-input').value);
             if (isNaN(bulkVal)) return;
+            applyBulkToState(spreadTLState, bulkVal);
+            renderTable();
+        };
 
+        // Vol Spread
+        window.updateSpreadVol = function(opsiyon, change) {
+            if (!spreadVolState[opsiyon]) spreadVolState[opsiyon] = 0;
+            spreadVolState[opsiyon] += change;
+            renderTable();
+        };
+
+        window.setSpreadVol = function(opsiyon, value) {
+            if (value === "") {
+                spreadVolState[opsiyon] = 0;
+            } else {
+                let val = parseFloat(value);
+                if (isNaN(val)) val = 0;
+                spreadVolState[opsiyon] = val;
+            }
+            renderTable();
+        };
+
+        window.applyBulkSpreadVol = function() {
+            const bulkVal = parseFloat(document.getElementById('bulk-spread-vol-input').value);
+            if (isNaN(bulkVal)) return;
+            applyBulkToState(spreadVolState, bulkVal);
+            renderTable();
+        };
+
+        function applyBulkToState(stateObj, value) {
             const tipFilter = document.getElementById('filter-tip').value;
             const vadeFilter = document.getElementById('filter-vade').value;
             const dayanakFilter = document.getElementById('filter-dayanak').value;
 
             globalData.forEach(row => {
-                // Filtreleme mantığını burada da uygula
                 if (tipFilter && row.Tip !== tipFilter) return;
                 if (vadeFilter && row.Vade !== vadeFilter) return;
                 if (dayanakFilter && row.Dayanak !== dayanakFilter) return;
-
-                // State'i güncelle
-                spreadState[row.Opsiyon] = bulkVal;
+                
+                stateObj[row.Opsiyon] = value;
             });
-
-            renderTable();
-        };
+        }
 
         function renderTable() {
             const tipFilter = document.getElementById('filter-tip').value;
             const vadeFilter = document.getElementById('filter-vade').value;
             const dayanakFilter = document.getElementById('filter-dayanak').value;
 
-            // Şu anki odaklanmış elementin durumunu sakla
+            // Focus koruma
             let activeElementId = null;
             let selectionStart = 0;
             let selectionEnd = 0;
-            
             if (document.activeElement && document.activeElement.tagName === "INPUT") {
                 activeElementId = document.activeElement.id;
                 selectionStart = document.activeElement.selectionStart;
@@ -236,7 +290,7 @@
                 let valA = a[sortCol];
                 let valB = b[sortCol];
 
-                if (sortCol === 'Spot Fiyat' || sortCol === 'Volatilite' || sortCol === 'FiyatRaw') {
+                if (['Spot Fiyat', 'Volatilite', 'FiyatRaw'].includes(sortCol)) {
                     valA = parseFloat(valA);
                     valB = parseFloat(valB);
                 }
@@ -261,12 +315,32 @@
 
             filteredData.forEach(row => {
                 const opsiyonId = row['Opsiyon'];
-                // Kayıtlı spread değeri veya 0
-                const spreadVal = spreadState[opsiyonId] !== undefined ? spreadState[opsiyonId] : 0;
                 
-                // Ask Fiyat Hesaplama: Teorik Fiyat + (Spread Kuruş / 100)
-                const teorikFiyat = parseFloat(row['FiyatRaw']);
-                const askFiyat = teorikFiyat + (spreadVal / 100.0);
+                // State değerlerini al
+                const spreadTL = spreadTLState[opsiyonId] !== undefined ? spreadTLState[opsiyonId] : 0;
+                const spreadVol = spreadVolState[opsiyonId] !== undefined ? spreadVolState[opsiyonId] : 0;
+                
+                // Ask Fiyat Hesaplama
+                // 1. Yeni Volatilite
+                const rawVol = parseFloat(row['Volatilite']);
+                // SpreadVol örneğin 5 ise, %5 ekliyoruz (0.05). Yani Sigma + 0.05
+                const newSigma = rawVol + (spreadVol / 100.0);
+                
+                // 2. Yeni Teorik Fiyat (USD)
+                const S = parseFloat(row['Spot Fiyat']);
+                const K = parseFloat(row['Strike']);
+                const T = parseFloat(row['T']);
+                const type = row['Tip'];
+                
+                const newPriceUSD = blackScholes(S, K, T, newSigma, type);
+                
+                // 3. TRL'ye Çevir
+                const usdtry = parseFloat(row['Kur']);
+                const carpan = parseFloat(row['Carpan']);
+                let newPriceTRL = newPriceUSD * usdtry * carpan;
+                
+                // 4. Spread TL ekle
+                newPriceTRL += (spreadTL / 100.0);
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -278,33 +352,45 @@
                     <td>${row['Volatilite']}</td>
                     <td class="text-secondary">${row['Fiyat']}</td>
                     
-                    <!-- Spread Kontrolü -->
+                    <!-- Spread TL -->
                     <td>
                         <div class="input-group input-group-sm spread-input-group">
-                            <button class="btn btn-outline-secondary" onclick="updateSpread('${opsiyonId}', -1)">-</button>
+                            <button class="btn btn-outline-secondary" onclick="updateSpreadTL('${opsiyonId}', -1)">-</button>
                             <input type="text" 
-                                   id="spread-${opsiyonId}"
+                                   id="spread-tl-${opsiyonId}"
                                    class="form-control" 
-                                   value="${spreadVal}" 
-                                   oninput="setSpread('${opsiyonId}', this.value)"
+                                   value="${spreadTL}" 
+                                   oninput="setSpreadTL('${opsiyonId}', this.value)"
                                    autocomplete="off">
-                            <button class="btn btn-outline-secondary" onclick="updateSpread('${opsiyonId}', 1)">+</button>
+                            <button class="btn btn-outline-secondary" onclick="updateSpreadTL('${opsiyonId}', 1)">+</button>
+                        </div>
+                    </td>
+
+                    <!-- Spread Vol -->
+                    <td>
+                        <div class="input-group input-group-sm spread-input-group">
+                            <button class="btn btn-outline-secondary" onclick="updateSpreadVol('${opsiyonId}', -1)">-</button>
+                            <input type="text" 
+                                   id="spread-vol-${opsiyonId}"
+                                   class="form-control" 
+                                   value="${spreadVol}" 
+                                   oninput="setSpreadVol('${opsiyonId}', this.value)"
+                                   autocomplete="off">
+                            <button class="btn btn-outline-secondary" onclick="updateSpreadVol('${opsiyonId}', 1)">+</button>
                         </div>
                     </td>
                     
                     <!-- Ask Fiyat -->
-                    <td class="fw-bold text-info">${askFiyat.toFixed(2)} ₺</td>
+                    <td class="fw-bold text-info">${newPriceTRL.toFixed(2)} ₺</td>
                 `;
                 tbody.appendChild(tr);
             });
 
-            // Focus ve cursor pozisyonunu geri yükle
+            // Focus restore
             if (activeElementId) {
                 const el = document.getElementById(activeElementId);
                 if (el) {
                     el.focus();
-                    // Input type "text" olduğu için selectionStart/End çalışır. "number" tipinde çalışmaz.
-                    // Bu yüzden yukarıda input type="text" yaptım.
                     try {
                         el.setSelectionRange(selectionStart, selectionEnd);
                     } catch (e) {

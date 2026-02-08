@@ -90,7 +90,11 @@ def get_data():
                 "Vade": row['vade'].strftime('%d.%m.%Y'),
                 "Volatilite": f"{sigma:.2f}",
                 "Fiyat": f"{toplam_trl:.2f} ₺",
-                "FiyatRaw": toplam_trl # Sıralama için ham veri
+                "FiyatRaw": toplam_trl,
+                "Strike": K,
+                "Carpan": carpan,
+                "Kur": usdtry,
+                "T": T
             })
             
         return jsonify({
