@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="tr" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canlı Opsiyon Takip</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding: 20px; }
+        .container { max-width: 1600px; }
+        h1 { font-size: 2rem; margin-bottom: 20px; }
+        .status-bar { font-size: 0.9rem; color: #198754; margin-bottom: 10px; font-weight: bold;}
+        th { cursor: pointer; user-select: none; vertical-align: middle; }
+        th:hover { background-color: #343a40; }
+        .sort-icon::after { content: ' ↕'; font-size: 0.8em; opacity: 0.5; }
+        .sort-asc::after { content: ' ↑'; opacity: 1; }
+        .sort-desc::after { content: ' ↓'; opacity: 1; }
+        
+        /* Spread input stili */
+        .spread-input-group { width: 140px; }
+        .spread-input-group input { text-align: center; font-weight: bold; }
+        /* Tablo hücre hizalamaları */
+        td { vertical-align: middle; }
+    </style>
+</head>
+<body>
+    <div class="container p-4 shadow-sm rounded border">
+        <h1>⚡ Excel'den Canlı Veri Akışı (Kaydetme Gerektirmez)</h1>
+        <div id="status" class="status-bar">Bağlanıyor...</div>
+        
+        <!-- Filters -->
+        <div class="row mb-3 g-2">
+            <div class="col-md-2">
+                <label for="filter-dayanak" class="form-label text-muted small mb-0">Dayanak Varlık</label>
+                <select id="filter-dayanak" class="form-select form-select-sm" onchange="applyFilters()">
+                    <option value="">Tümü</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="filter-tip" class="form-label text-muted small mb-0">Tip</label>
+                <select id="filter-tip" class="form-select form-select-sm" onchange="applyFilters()">
+                    <option value="">Tümü</option>
+                    <option value="Call">Call</option>
+                    <option value="Put">Put</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="filter-vade" class="form-label text-muted small mb-0">Vade</label>
+                <select id="filter-vade" class="form-select form-select-sm" onchange="applyFilters()">
+                    <option value="">Tümü</option>
+                </select>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">Toplu Spread (Kr)</span>
+                    <input type="number" id="bulk-spread-input" class="form-control" placeholder="Örn: 5">
+                    <button class="btn btn-primary" onclick="applyBulkSpread()">Uygula</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover table-sm">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('Opsiyon')" class="sort-icon" id="th-Opsiyon">Opsiyon</th>
+                        <th onclick="sortTable('Dayanak')" class="sort-icon" id="th-Dayanak">Dayanak</th>
+                        <th onclick="sortTable('Tip')" class="sort-icon" id="th-Tip">Tip</th>
+                        <th onclick="sortTable('Spot Fiyat')" class="sort-icon" id="th-Spot Fiyat">Spot Fiyat</th>
+                        <th onclick="sortTable('Vade')" class="sort-icon" id="th-Vade">Vade</th>
+                        <th onclick="sortTable('Volatilite')" class="sort-icon" id="th-Volatilite">Volatilite</th>
+                        <th onclick="sortTable('FiyatRaw')" class="sort-icon" id="th-FiyatRaw">Teorik Fiyat</th>
+                        <th>Spread (Kuruş)</th>
+                        <th>Ask Fiyat</th>
+                    </tr>
+                </thead>
+                <tbody id="table-body">
+                    <!-- Veriler buraya gelecek -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let globalData = [];
+        let sortCol = 'Opsiyon';
+        let sortAsc = true;
+        let isFilterInitialized = false;
+        
+        // Spread değerlerini saklamak için obje: { 'OpsiyonAdi': intValue }
+        let spreadState = {};
+
+        function fetchData() {
+            fetch('/api/data')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('status').innerText = 'Hata: ' + data.error;
+                        document.getElementById('status').style.color = 'red';
+                        return;
+                    }
+
+                    document.getElementById('status').innerText = 'Bağlantı Aktif | Son Güncelleme: ' + data.timestamp;
+                    document.getElementById('status').style.color = '#198754';
+                    
+                    globalData = data.results;
+                    
+                    if (!isFilterInitialized) {
+                        populateFilters();
+                        isFilterInitialized = true;
+                    }
+                    
+                    renderTable();
+                })
+                .catch(err => {
+                    console.error('Fetch error:', err);
+                    document.getElementById('status').innerText = 'Sunucuyla bağlantı kurulamadı.';
+                    document.getElementById('status').style.color = 'red';
+                });
+        }
+
+        function populateFilters() {
+            // Vade Filtresi
+            const vades = [...new Set(globalData.map(item => item.Vade))].sort();
+            const selectVade = document.getElementById('filter-vade');
+            const currentVade = selectVade.value;
+            selectVade.innerHTML = '<option value="">Tümü</option>';
+            vades.forEach(vade => {
+                const option = document.createElement('option');
+                option.value = vade;
+                option.innerText = vade;
+                selectVade.appendChild(option);
+            });
+            selectVade.value = currentVade;
+
+            // Dayanak Filtresi
+            const dayanaklar = [...new Set(globalData.map(item => item.Dayanak))].sort();
+            const selectDayanak = document.getElementById('filter-dayanak');
+            const currentDayanak = selectDayanak.value;
+            selectDayanak.innerHTML = '<option value="">Tümü</option>';
+            dayanaklar.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item;
+                option.innerText = item;
+                selectDayanak.appendChild(option);
+            });
+            selectDayanak.value = currentDayanak;
+        }
+
+        function applyFilters() {
+            renderTable();
+        }
+
+        function sortTable(column) {
+            if (sortCol === column) {
+                sortAsc = !sortAsc;
+            } else {
+                sortCol = column;
+                sortAsc = true;
+            }
+            renderTable();
+        }
+
+        // Spread Güncelleme Fonksiyonları
+        window.updateSpread = function(opsiyon, change) {
+            if (!spreadState[opsiyon]) spreadState[opsiyon] = 0;
+            spreadState[opsiyon] += change;
+            renderTable();
+        };
+
+        window.setSpread = function(opsiyon, value) {
+            // Boş string gelirse (kullanıcı her şeyi silerse) 0 yapma, boş bırakmaya izin ver
+            // Ancak hesaplama için bir değer lazım. State'i güncelleyelim.
+            if (value === "") {
+                spreadState[opsiyon] = 0; // Hesaplama için 0
+                // Input'ta görsel olarak boş kalmasını istiyorsak burası biraz karışır çünkü 
+                // renderTable sürekli çağrılıyor ve state'ten okuyor.
+                // Basitlik adına parse edip kaydedelim.
+            } else {
+                let val = parseInt(value);
+                if (isNaN(val)) val = 0;
+                spreadState[opsiyon] = val;
+            }
+            // renderTable() burada çağırmıyoruz, otomatik döngüyü bekliyoruz veya 
+            // anlık tepki istiyorsak:
+            renderTable(); 
+        };
+
+        window.applyBulkSpread = function() {
+            const bulkVal = parseInt(document.getElementById('bulk-spread-input').value);
+            if (isNaN(bulkVal)) return;
+
+            const tipFilter = document.getElementById('filter-tip').value;
+            const vadeFilter = document.getElementById('filter-vade').value;
+            const dayanakFilter = document.getElementById('filter-dayanak').value;
+
+            globalData.forEach(row => {
+                // Filtreleme mantığını burada da uygula
+                if (tipFilter && row.Tip !== tipFilter) return;
+                if (vadeFilter && row.Vade !== vadeFilter) return;
+                if (dayanakFilter && row.Dayanak !== dayanakFilter) return;
+
+                // State'i güncelle
+                spreadState[row.Opsiyon] = bulkVal;
+            });
+
+            renderTable();
+        };
+
+        function renderTable() {
+            const tipFilter = document.getElementById('filter-tip').value;
+            const vadeFilter = document.getElementById('filter-vade').value;
+            const dayanakFilter = document.getElementById('filter-dayanak').value;
+
+            // Şu anki odaklanmış elementin durumunu sakla
+            let activeElementId = null;
+            let selectionStart = 0;
+            let selectionEnd = 0;
+            
+            if (document.activeElement && document.activeElement.tagName === "INPUT") {
+                activeElementId = document.activeElement.id;
+                selectionStart = document.activeElement.selectionStart;
+                selectionEnd = document.activeElement.selectionEnd;
+            }
+
+            // Filtreleme
+            let filteredData = globalData.filter(row => {
+                if (tipFilter && row.Tip !== tipFilter) return false;
+                if (vadeFilter && row.Vade !== vadeFilter) return false;
+                if (dayanakFilter && row.Dayanak !== dayanakFilter) return false;
+                return true;
+            });
+
+            // Sıralama
+            filteredData.sort((a, b) => {
+                let valA = a[sortCol];
+                let valB = b[sortCol];
+
+                if (sortCol === 'Spot Fiyat' || sortCol === 'Volatilite' || sortCol === 'FiyatRaw') {
+                    valA = parseFloat(valA);
+                    valB = parseFloat(valB);
+                }
+
+                if (valA < valB) return sortAsc ? -1 : 1;
+                if (valA > valB) return sortAsc ? 1 : -1;
+                return 0;
+            });
+
+            // Header Sınıflarını Güncelle
+            document.querySelectorAll('th').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+            const activeTh = document.getElementById('th-' + sortCol);
+            if (activeTh) {
+                activeTh.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
+            }
+
+            // Tabloyu Doldur
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+
+            filteredData.forEach(row => {
+                const opsiyonId = row['Opsiyon'];
+                // Kayıtlı spread değeri veya 0
+                const spreadVal = spreadState[opsiyonId] !== undefined ? spreadState[opsiyonId] : 0;
+                
+                // Ask Fiyat Hesaplama: Teorik Fiyat + (Spread Kuruş / 100)
+                const teorikFiyat = parseFloat(row['FiyatRaw']);
+                const askFiyat = teorikFiyat + (spreadVal / 100.0);
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row['Opsiyon']}</td>
+                    <td>${row['Dayanak']}</td>
+                    <td><span class="badge ${row['Tip'] === 'Call' ? 'text-bg-success' : 'text-bg-danger'}">${row['Tip']}</span></td>
+                    <td>${row['Spot Fiyat']}</td>
+                    <td>${row['Vade']}</td>
+                    <td>${row['Volatilite']}</td>
+                    <td class="text-secondary">${row['Fiyat']}</td>
+                    
+                    <!-- Spread Kontrolü -->
+                    <td>
+                        <div class="input-group input-group-sm spread-input-group">
+                            <button class="btn btn-outline-secondary" onclick="updateSpread('${opsiyonId}', -1)">-</button>
+                            <input type="text" 
+                                   id="spread-${opsiyonId}"
+                                   class="form-control" 
+                                   value="${spreadVal}" 
+                                   oninput="setSpread('${opsiyonId}', this.value)"
+                                   autocomplete="off">
+                            <button class="btn btn-outline-secondary" onclick="updateSpread('${opsiyonId}', 1)">+</button>
+                        </div>
+                    </td>
+                    
+                    <!-- Ask Fiyat -->
+                    <td class="fw-bold text-info">${askFiyat.toFixed(2)} ₺</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Focus ve cursor pozisyonunu geri yükle
+            if (activeElementId) {
+                const el = document.getElementById(activeElementId);
+                if (el) {
+                    el.focus();
+                    // Input type "text" olduğu için selectionStart/End çalışır. "number" tipinde çalışmaz.
+                    // Bu yüzden yukarıda input type="text" yaptım.
+                    try {
+                        el.setSelectionRange(selectionStart, selectionEnd);
+                    } catch (e) {
+                        console.warn("Cursor pozisyonu ayarlanamadı", e);
+                    }
+                }
+            }
+        }
+
+        // İlk yükleme ve periyodik güncelleme
+        fetchData();
+        setInterval(fetchData, 1000); // 1 saniyede bir güncelle
+    </script>
+</body>
+</html>
