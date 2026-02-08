@@ -81,6 +81,7 @@
                         <th onclick="sortTable('FiyatRaw')" class="sort-icon" id="th-FiyatRaw">Teorik Fiyat</th>
                         <th>Spread (Kuruş)</th>
                         <th>Spread Vol (%)</th>
+                        <th>Ask IV</th>
                         <th>Ask Fiyat</th>
                     </tr>
                 </thead>
@@ -113,6 +114,29 @@
             } else {
                 return K * cumulativeDistribution(-d2) - S * cumulativeDistribution(-d1);
             }
+        }
+        
+        function getImpliedVolatility(expectedCost, s, k, t, type) {
+             // expectedCost is in USD
+             if (t <= 0) return 0;
+             if (expectedCost <= 0) return 0; // Negative price implies no IV or broken spread
+             
+             let low = 0;
+             let high = 5; // 500%
+             let mid = 0;
+             
+             // Simple Bisection
+             for (let i = 0; i < 20; i++) {
+                 mid = (low + high) / 2;
+                 let val = blackScholes(s, k, t, mid, type);
+                 if (Math.abs(val - expectedCost) < 0.0001) break;
+                 if (val < expectedCost) {
+                     low = mid;
+                 } else {
+                     high = mid;
+                 }
+             }
+             return mid;
         }
 
         // --- Application Logic ---
@@ -320,27 +344,42 @@
                 const spreadTL = spreadTLState[opsiyonId] !== undefined ? spreadTLState[opsiyonId] : 0;
                 const spreadVol = spreadVolState[opsiyonId] !== undefined ? spreadVolState[opsiyonId] : 0;
                 
-                // Ask Fiyat Hesaplama
-                // 1. Yeni Volatilite
+                // --- Ask Fiyat Hesaplama ---
+                // 1. Girdiler
                 const rawVol = parseFloat(row['VolatiliteRaw']);
-                // SpreadVol örneğin 5 ise, %5 ekliyoruz (0.05). Yani Sigma + 0.05
-                const newSigma = rawVol + (spreadVol / 100.0);
-                
-                // 2. Yeni Teorik Fiyat (USD)
                 const S = parseFloat(row['Spot Fiyat']);
                 const K = parseFloat(row['Strike']);
                 const T = parseFloat(row['T']);
                 const type = row['Tip'];
-                
-                const newPriceUSD = blackScholes(S, K, T, newSigma, type);
-                
-                // 3. TRL'ye Çevir
                 const usdtry = parseFloat(row['Kur']);
                 const carpan = parseFloat(row['Carpan']);
+                
+                // 2. Yeni Volatilite (Spread Vol Uygula)
+                const newSigma = rawVol + (spreadVol / 100.0);
+                
+                // 3. Teorik Fiyat (USD) - Sadece vol spread ile
+                const newPriceUSD = blackScholes(S, K, T, newSigma, type);
+                
+                // 4. TRL'ye Çevir
                 let newPriceTRL = newPriceUSD * usdtry * carpan;
                 
-                // 4. Spread TL ekle
+                // 5. Spread TL ekle
                 newPriceTRL += (spreadTL / 100.0);
+                
+                // --- Ask IV Hesaplama ---
+                // Hedef Fiyat (USD cinsinden)
+                // newPriceTRL (Ask Fiyat) = (FiyatUSD * Kur * Carpan)
+                // Yani: FiyatUSD = newPriceTRL / (Kur * Carpan)
+                let targetPriceUSD = 0;
+                if (usdtry > 0 && carpan > 0) {
+                    targetPriceUSD = newPriceTRL / (usdtry * carpan);
+                }
+                
+                // IV Hesapla
+                let askIV = 0;
+                if (targetPriceUSD > 0) {
+                    askIV = getImpliedVolatility(targetPriceUSD, S, K, T, type);
+                }
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -380,6 +419,9 @@
                         </div>
                     </td>
                     
+                    <!-- Ask IV -->
+                    <td class="text-warning">${(askIV * 100).toFixed(2)}%</td>
+
                     <!-- Ask Fiyat -->
                     <td class="fw-bold text-info">${newPriceTRL.toFixed(2)} ₺</td>
                 `;
