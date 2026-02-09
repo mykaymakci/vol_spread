@@ -3,5 +3,6 @@ __pycache__/
 venv/
 .env
 .vscode/
-.xlsx
-.csv
+*.xlsx
+*.csv
+CLAUDE.md
