@@ -121,19 +121,22 @@
             }
         }
         
-        function getImpliedVolatility(expectedCost, s, k, t, type) {
+        function getImpliedVolatility(expectedCost, s, k, t, type, rho, sigmaFX) {
              // expectedCost is in USD
+             rho = rho || 0;
+             sigmaFX = sigmaFX || 0;
              if (t <= 0) return 0;
-             if (expectedCost <= 0) return 0; // Negative price implies no IV or broken spread
-             
+             if (expectedCost <= 0) return 0;
+
              let low = 0;
              let high = 5; // 500%
              let mid = 0;
-             
+
              // Simple Bisection
              for (let i = 0; i < 20; i++) {
                  mid = (low + high) / 2;
-                 let val = blackScholes(s, k, t, mid, type);
+                 let bTrial = -rho * mid * sigmaFX;
+                 let val = blackScholes(s, k, t, mid, type, 0, bTrial);
                  if (Math.abs(val - expectedCost) < 0.0001) break;
                  if (val < expectedCost) {
                      low = mid;
@@ -327,38 +330,45 @@
                 const type = row['Tip'];
                 const usdtry = parseFloat(row['Kur']);
                 const carpan = parseFloat(row['Carpan']);
+                const rho = parseFloat(row['Rho']) || 0;
+                const sigmaFX = parseFloat(row['SigmaFX']) || 0;
+                const isQuanto = !!row['Quanto'];
+                const kurCarpan = isQuanto ? carpan : usdtry * carpan;
 
+                // Quanto düzeltmesi: b = -rho * sigma * sigmaFX
                 const newSigma = rawVol + (spreadVol / 100.0);
-                const newPriceUSD = blackScholes(S, K, T, newSigma, type);
-                let newPriceTRL = newPriceUSD * usdtry * carpan;
+                const bNew = -rho * newSigma * sigmaFX;
+                const newPriceUSD = blackScholes(S, K, T, newSigma, type, 0, bNew);
+                let newPriceTRL = newPriceUSD * kurCarpan;
                 newPriceTRL += (spreadTL / 100.0);
 
-                const basePriceUSD = blackScholes(S, K, T, rawVol, type);
-                const basePriceTRL = basePriceUSD * usdtry * carpan;
+                const bBase = -rho * rawVol * sigmaFX;
+                const basePriceUSD = blackScholes(S, K, T, rawVol, type, 0, bBase);
+                const basePriceTRL = basePriceUSD * kurCarpan;
 
                 let kurusIndicator = 0;
                 if (spreadVol !== 0) {
-                    const volSpreadPriceTRL = newPriceUSD * usdtry * carpan;
+                    const volSpreadPriceTRL = newPriceUSD * kurCarpan;
                     kurusIndicator = (volSpreadPriceTRL - basePriceTRL) * 100;
                 }
 
                 let volIndicator = 0;
-                if (spreadTL !== 0 && usdtry > 0 && carpan > 0) {
+                if (spreadTL !== 0 && kurCarpan > 0) {
                     const kurusOnlyPriceTRL = basePriceTRL + (spreadTL / 100.0);
-                    const kurusOnlyPriceUSD = kurusOnlyPriceTRL / (usdtry * carpan);
+                    const kurusOnlyPriceUSD = kurusOnlyPriceTRL / kurCarpan;
                     if (kurusOnlyPriceUSD > 0) {
-                        const kurusIV = getImpliedVolatility(kurusOnlyPriceUSD, S, K, T, type);
+                        const kurusIV = getImpliedVolatility(kurusOnlyPriceUSD, S, K, T, type, rho, sigmaFX);
                         volIndicator = (kurusIV - rawVol) * 100;
                     }
                 }
 
                 let targetPriceUSD = 0;
-                if (usdtry > 0 && carpan > 0) {
-                    targetPriceUSD = newPriceTRL / (usdtry * carpan);
+                if (kurCarpan > 0) {
+                    targetPriceUSD = newPriceTRL / kurCarpan;
                 }
                 let askIV = 0;
                 if (targetPriceUSD > 0) {
-                    askIV = getImpliedVolatility(targetPriceUSD, S, K, T, type);
+                    askIV = getImpliedVolatility(targetPriceUSD, S, K, T, type, rho, sigmaFX);
                 }
 
                 return { row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV };

@@ -68,6 +68,10 @@ def get_data():
         now = datetime.now()
         results = []
 
+        # Quanto parametreleri (sadece xauusd için)
+        QUANTO_SIGMA_FX = 0.4
+        QUANTO_RHO = -0.15
+
         for _, row in df_opsiyon.iterrows():
             dayanak_adi = str(row['dayanak']).strip().lower()
             S = fiyat_dict.get(dayanak_adi, 0.0)
@@ -75,13 +79,26 @@ def get_data():
             sigma = row['vol']
             carpan = row['carpan']
             opt_type = 'call' if str(row['tip']).strip().lower() == 'c' else 'put'
-            
+
             T = (row['vade'] - now).days / 365
             if T < 0: T = 0
-            
-            fiyat_usd = gblackscholes(S, K, T, sigma, opt_type)
-            toplam_trl = fiyat_usd * usdtry * carpan
-            
+
+            # Quanto düzeltmesi: b = -rho * sigma * sigma_fx
+            if dayanak_adi == 'xauusd':
+                b = -QUANTO_RHO * sigma * QUANTO_SIGMA_FX
+                sigma_fx = QUANTO_SIGMA_FX
+                rho = QUANTO_RHO
+            else:
+                b = 0
+                sigma_fx = 0
+                rho = 0
+
+            fiyat_usd = gblackscholes(S, K, T, sigma, opt_type, r=0, b=b)
+            if dayanak_adi == 'xauusd':
+                toplam_trl = fiyat_usd * carpan
+            else:
+                toplam_trl = fiyat_usd * usdtry * carpan
+
             results.append({
                 "Opsiyon": row['ad'],
                 "Dayanak": row['dayanak'],
@@ -95,7 +112,10 @@ def get_data():
                 "Strike": K,
                 "Carpan": carpan,
                 "Kur": usdtry,
-                "T": T
+                "T": T,
+                "SigmaFX": sigma_fx,
+                "Rho": rho,
+                "Quanto": dayanak_adi == 'xauusd'
             })
             
         return jsonify({
