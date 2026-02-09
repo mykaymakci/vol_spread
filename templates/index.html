@@ -69,6 +69,12 @@
             <div class="col-md-1 d-flex align-items-end">
                 <button class="btn btn-sm btn-outline-secondary w-100" id="btn-toggle-mvol" onclick="toggleMarketVol()">Market Vol</button>
             </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <div class="input-group input-group-sm">
+                    <input type="number" id="breakeven-input" class="form-control" value="0" style="max-width:60px;">
+                    <button class="btn btn-info" onclick="applyBreakeven()">Breakeven</button>
+                </div>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -293,6 +299,28 @@
             const bulkVal = parseFloat(document.getElementById('bulk-spread-vol-input').value);
             if (isNaN(bulkVal)) return;
             applyBulkToState(spreadVolState, bulkVal);
+            renderTable();
+        };
+
+        window.applyBreakeven = function() {
+            const extra = parseFloat(document.getElementById('breakeven-input').value) || 0;
+            const tipFilter = document.getElementById('filter-tip').value;
+            const vadeFilter = document.getElementById('filter-vade').value;
+            const dayanakFilter = document.getElementById('filter-dayanak').value;
+
+            globalData.forEach(row => {
+                if (tipFilter && row.Tip !== tipFilter) return;
+                if (vadeFilter && row.Vade !== vadeFilter) return;
+                if (dayanakFilter && row.Dayanak !== dayanakFilter) return;
+
+                if (row.MarketVol == null) return;
+                const opsiyonVol = parseFloat(row.VolatiliteRaw);
+                const marketVol = parseFloat(row.MarketVol);
+                if (marketVol <= opsiyonVol) return;
+
+                const diff = (marketVol - opsiyonVol) * 100;
+                spreadVolState[row.Opsiyon] = parseFloat((diff + extra).toFixed(4));
+            });
             renderTable();
         };
 
