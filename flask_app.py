@@ -4,10 +4,16 @@ import numpy as np
 from scipy.stats import norm
 from datetime import datetime
 import xlwings as xw
-import pythoncom
+import sys
+import os
 import webbrowser
 import threading
 import time
+
+if sys.platform == 'win32':
+    import pythoncom
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
@@ -27,7 +33,7 @@ def gblackscholes(S, K, T, sigma, option_type='call', r=0, b=0):
 def load_csv_data():
     try:
         cols = ['ad', 'dayanak', 'strike', 'vol', 'vade', 'carpan', 'tip']
-        df = pd.read_csv('1.csv', names=cols, header=None)
+        df = pd.read_csv(os.path.join(BASE_DIR, '1.csv'), names=cols, header=None)
         df['vade'] = pd.to_datetime(df['vade'], format='%d.%m.%Y')
         return df
     except Exception as e:
@@ -36,7 +42,7 @@ def load_csv_data():
 def load_market_vol():
     market_vol = {}
     try:
-        with open('vol.csv', 'r') as f:
+        with open(os.path.join(BASE_DIR, 'vol.csv'), 'r') as f:
             for line in f:
                 line = line.strip()
                 if not line or line == ',':
@@ -54,8 +60,9 @@ def index():
 
 @app.route('/api/data')
 def get_data():
-    # Flask sunucusu thread içinde çalıştığı için COM başlatma gerekebilir
-    pythoncom.CoInitialize()
+    # Flask sunucusu thread içinde çalıştığı için COM başlatma gerekebilir (Windows)
+    if sys.platform == 'win32':
+        pythoncom.CoInitialize()
     
     try:
         # CSV Yükle

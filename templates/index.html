@@ -25,7 +25,7 @@
 </head>
 <body>
     <div class="container p-4 shadow-sm rounded border">
-        <h1>⚡ Excel'den Canlı Veri Akışı (Kaydetme Gerektirmez)</h1>
+        <h1>VOL Spread</h1>
         <div id="status" class="status-bar">Bağlanıyor...</div>
         
         <!-- Filters -->
@@ -567,7 +567,7 @@
                     <td class="market-vol-col" style="display:none;">${row['MarketVol'] != null ? (row['MarketVol'] * 100).toFixed(2) + '%' : '-'}</td>
 
                     <!-- Vol Fark -->
-                    <td class="market-vol-col" style="display:none; color:${volFark != null ? (volFark >= 0 ? '#198754' : '#dc3545') : ''}">${volFark != null ? volFark.toFixed(2) + '%' : '-'}</td>
+                    <td class="market-vol-col" style="display:none; color:${volFark != null ? (volFark >= 0 ? '#dc3545' : '#198754') : ''}">${volFark != null ? volFark.toFixed(2) + '%' : '-'}</td>
 
                     <!-- Delta -->
                     <td class="greeks-col" style="display:none;">${delta.toFixed(4)}</td>
