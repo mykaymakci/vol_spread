@@ -105,17 +105,19 @@
             return prob;
         }
 
-        function blackScholes(S, K, T, sigma, type) {
+        function blackScholes(S, K, T, sigma, type, r, b) {
+            r = r || 0;
+            b = b || 0;
             if (T <= 0) {
                 return type === 'Call' ? Math.max(0, S - K) : Math.max(0, K - S);
             }
-            var d1 = (Math.log(S / K) + (0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+            var d1 = (Math.log(S / K) + (b + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
             var d2 = d1 - sigma * Math.sqrt(T);
-            
+
             if (type === 'Call') {
-                return S * cumulativeDistribution(d1) - K * cumulativeDistribution(d2);
+                return S * Math.exp((b - r) * T) * cumulativeDistribution(d1) - K * Math.exp(-r * T) * cumulativeDistribution(d2);
             } else {
-                return K * cumulativeDistribution(-d2) - S * cumulativeDistribution(-d1);
+                return K * Math.exp(-r * T) * cumulativeDistribution(-d2) - S * Math.exp((b - r) * T) * cumulativeDistribution(-d1);
             }
         }
         

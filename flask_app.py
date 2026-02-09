@@ -11,18 +11,18 @@ import time
 
 app = Flask(__name__)
 
-# --- Black-Scholes Hesaplama (r=0) ---
-def black_scholes_r0(S, K, T, sigma, option_type='call'):
-    if T <= 0: 
+# --- Generalized Black-Scholes Hesaplama ---
+def gblackscholes(S, K, T, sigma, option_type='call', r=0, b=0):
+    if T <= 0:
         return max(0, S - K) if option_type == 'call' else max(0, K - S)
-    
-    d1 = (np.log(S / K) + (0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+
+    d1 = (np.log(S / K) + (b + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
-    
+
     if option_type == 'call':
-        return S * norm.cdf(d1) - K * norm.cdf(d2)
+        return S * np.exp((b - r) * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
     else:
-        return K * norm.cdf(-d2) - S * norm.cdf(-d1)
+        return K * np.exp(-r * T) * norm.cdf(-d2) - S * np.exp((b - r) * T) * norm.cdf(-d1)
 
 def load_csv_data():
     try:
@@ -79,7 +79,7 @@ def get_data():
             T = (row['vade'] - now).days / 365
             if T < 0: T = 0
             
-            fiyat_usd = black_scholes_r0(S, K, T, sigma, opt_type)
+            fiyat_usd = gblackscholes(S, K, T, sigma, opt_type)
             toplam_trl = fiyat_usd * usdtry * carpan
             
             results.append({
