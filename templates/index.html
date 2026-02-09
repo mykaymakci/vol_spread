@@ -74,6 +74,7 @@
                     <tr>
                         <th onclick="sortTable('Opsiyon')" class="sort-icon" id="th-Opsiyon">Opsiyon</th>
                         <th onclick="sortTable('Dayanak')" class="sort-icon" id="th-Dayanak">Dayanak</th>
+                        <th onclick="sortTable('Strike')" class="sort-icon" id="th-Strike">Strike</th>
                         <th onclick="sortTable('Tip')" class="sort-icon" id="th-Tip">Tip</th>
                         <th onclick="sortTable('Spot Fiyat')" class="sort-icon" id="th-Spot Fiyat">Spot Fiyat</th>
                         <th onclick="sortTable('Vade')" class="sort-icon" id="th-Vade">Vade</th>
@@ -374,7 +375,7 @@
                 } else {
                     valA = a.row[sortCol];
                     valB = b.row[sortCol];
-                    if (['Spot Fiyat', 'Volatilite', 'FiyatRaw'].includes(sortCol)) {
+                    if (['Spot Fiyat', 'Volatilite', 'FiyatRaw', 'Strike'].includes(sortCol)) {
                         valA = parseFloat(valA);
                         valB = parseFloat(valB);
                     }
@@ -405,6 +406,7 @@
                 tr.innerHTML = `
                     <td>${row['Opsiyon']}</td>
                     <td>${row['Dayanak']}</td>
+                    <td>${row['Strike']}</td>
                     <td><span class="badge ${row['Tip'] === 'Call' ? 'text-bg-success' : 'text-bg-danger'}">${row['Tip']}</span></td>
                     <td>${row['Spot Fiyat']}</td>
                     <td>${row['Vade']}</td>

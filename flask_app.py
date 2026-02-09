@@ -76,7 +76,7 @@ def get_data():
             carpan = row['carpan']
             opt_type = 'call' if str(row['tip']).strip().lower() == 'c' else 'put'
             
-            T = (row['vade'] - now).total_seconds() / (365.25 * 24 * 3600)
+            T = (row['vade'] - now).days / 365
             if T < 0: T = 0
             
             fiyat_usd = black_scholes_r0(S, K, T, sigma, opt_type)
