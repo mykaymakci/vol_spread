@@ -66,6 +66,9 @@
                     <button class="btn btn-warning" onclick="applyBulkSpreadVol()">Uygula</button>
                 </div>
             </div>
+            <div class="col-md-1 d-flex align-items-end">
+                <button class="btn btn-sm btn-outline-secondary w-100" id="btn-toggle-mvol" onclick="toggleMarketVol()">Market Vol</button>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -86,6 +89,7 @@
                         <th onclick="sortTable('KrdenVol')" class="sort-icon" id="th-KrdenVol">Krden Vol</th>
                         <th>Ask IV</th>
                         <th>Ask Fiyat</th>
+                        <th onclick="sortTable('MarketVol')" class="sort-icon market-vol-col" id="th-MarketVol" style="display:none;">Market Vol</th>
                     </tr>
                 </thead>
                 <tbody id="table-body">
@@ -156,6 +160,18 @@
         // Spread states
         let spreadTLState = {}; // { 'OpsiyonAdi': intValue (kuruş) }
         let spreadVolState = {}; // { 'OpsiyonAdi': floatValue (%) }
+        let marketVolVisible = false;
+
+        window.toggleMarketVol = function() {
+            marketVolVisible = !marketVolVisible;
+            const display = marketVolVisible ? '' : 'none';
+            document.querySelectorAll('.market-vol-col').forEach(el => {
+                el.style.display = display;
+            });
+            const btn = document.getElementById('btn-toggle-mvol');
+            btn.classList.toggle('btn-outline-secondary', !marketVolVisible);
+            btn.classList.toggle('btn-secondary', marketVolVisible);
+        };
 
         function fetchData() {
             fetch('/api/data')
@@ -384,6 +400,9 @@
                 } else if (sortCol === 'KrdenVol') {
                     valA = a.volIndicator;
                     valB = b.volIndicator;
+                } else if (sortCol === 'MarketVol') {
+                    valA = a.row['MarketVol'] != null ? a.row['MarketVol'] : -1;
+                    valB = b.row['MarketVol'] != null ? b.row['MarketVol'] : -1;
                 } else {
                     valA = a.row[sortCol];
                     valB = b.row[sortCol];
@@ -464,9 +483,19 @@
 
                     <!-- Ask Fiyat -->
                     <td class="fw-bold text-info">${newPriceTRL.toFixed(2)} ₺</td>
+
+                    <!-- Market Vol -->
+                    <td class="market-vol-col" style="display:none;">${row['MarketVol'] != null ? (row['MarketVol'] * 100).toFixed(2) + '%' : '-'}</td>
                 `;
                 tbody.appendChild(tr);
             });
+
+            // Market Vol sütun görünürlüğünü koru
+            if (marketVolVisible) {
+                document.querySelectorAll('.market-vol-col').forEach(el => {
+                    el.style.display = '';
+                });
+            }
 
             // Focus restore
             if (activeElementId) {

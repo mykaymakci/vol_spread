@@ -33,6 +33,21 @@ def load_csv_data():
     except Exception as e:
         return None
 
+def load_market_vol():
+    market_vol = {}
+    try:
+        with open('vol.csv', 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line == ',':
+                    continue
+                parts = line.split(',')
+                if len(parts) >= 2 and parts[0] and parts[1]:
+                    market_vol[parts[0].strip()] = float(parts[1])
+    except Exception:
+        pass
+    return market_vol
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -65,6 +80,7 @@ def get_data():
                 fiyat_dict[str(row[0]).strip().lower()] = float(row[3])
         
         usdtry = fiyat_dict.get('usdtry', 1.0)
+        market_vol = load_market_vol()
         now = datetime.now()
         results = []
 
@@ -115,7 +131,8 @@ def get_data():
                 "T": T,
                 "SigmaFX": sigma_fx,
                 "Rho": rho,
-                "Quanto": dayanak_adi == 'xauusd'
+                "Quanto": dayanak_adi == 'xauusd',
+                "MarketVol": market_vol.get(row['ad'], None)
             })
             
         return jsonify({
