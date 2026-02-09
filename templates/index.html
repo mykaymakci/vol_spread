@@ -66,8 +66,9 @@
                     <button class="btn btn-warning" onclick="applyBulkSpreadVol()">Uygula</button>
                 </div>
             </div>
-            <div class="col-md-1 d-flex align-items-end">
+            <div class="col-md-1 d-flex align-items-end gap-1">
                 <button class="btn btn-sm btn-outline-secondary w-100" id="btn-toggle-mvol" onclick="toggleMarketVol()">Market Vol</button>
+                <button class="btn btn-sm btn-outline-secondary w-100" id="btn-toggle-greeks" onclick="toggleGreeks()">Greeks</button>
             </div>
             <div class="col-md-2 d-flex align-items-end">
                 <div class="input-group input-group-sm">
@@ -96,6 +97,9 @@
                         <th>Ask IV</th>
                         <th>Ask Fiyat</th>
                         <th onclick="sortTable('MarketVol')" class="sort-icon market-vol-col" id="th-MarketVol" style="display:none;">Market Vol</th>
+                        <th onclick="sortTable('VolFark')" class="sort-icon market-vol-col" id="th-VolFark" style="display:none;">Vol Fark</th>
+                        <th onclick="sortTable('Delta')" class="sort-icon greeks-col" id="th-Delta" style="display:none;">Delta</th>
+                        <th onclick="sortTable('Theta')" class="sort-icon greeks-col" id="th-Theta" style="display:none;">Theta</th>
                     </tr>
                 </thead>
                 <tbody id="table-body">
@@ -113,6 +117,10 @@
             var prob = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
             if (x > 0) prob = 1 - prob;
             return prob;
+        }
+
+        function normalPDF(x) {
+            return (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-x * x / 2);
         }
 
         function blackScholes(S, K, T, sigma, type, r, b) {
@@ -167,6 +175,18 @@
         let spreadTLState = {}; // { 'OpsiyonAdi': intValue (kuruş) }
         let spreadVolState = {}; // { 'OpsiyonAdi': floatValue (%) }
         let marketVolVisible = false;
+        let greeksVisible = false;
+
+        window.toggleGreeks = function() {
+            greeksVisible = !greeksVisible;
+            const display = greeksVisible ? '' : 'none';
+            document.querySelectorAll('.greeks-col').forEach(el => {
+                el.style.display = display;
+            });
+            const btn = document.getElementById('btn-toggle-greeks');
+            btn.classList.toggle('btn-outline-secondary', !greeksVisible);
+            btn.classList.toggle('btn-secondary', greeksVisible);
+        };
 
         window.toggleMarketVol = function() {
             marketVolVisible = !marketVolVisible;
@@ -415,7 +435,29 @@
                     askIV = getImpliedVolatility(targetPriceUSD, S, K, T, type, rho, sigmaFX);
                 }
 
-                return { row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV };
+                // Vol Fark: marketVol - optionVol (yüzde puan)
+                let volFark = null;
+                if (row['MarketVol'] != null) {
+                    volFark = (parseFloat(row['MarketVol']) - rawVol) * 100;
+                }
+
+                // Greeks (baz vol ile)
+                let delta = 0;
+                let theta = 0;
+                if (T > 0 && rawVol > 0) {
+                    const d1 = (Math.log(S / K) + (bBase + 0.5 * rawVol * rawVol) * T) / (rawVol * Math.sqrt(T));
+                    if (type === 'Call') {
+                        delta = Math.exp(bBase * T) * cumulativeDistribution(d1);
+                    } else {
+                        delta = Math.exp(bBase * T) * (cumulativeDistribution(d1) - 1);
+                    }
+                    const thetaAnnual = type === 'Call'
+                        ? -S * Math.exp(bBase * T) * normalPDF(d1) * rawVol / (2 * Math.sqrt(T)) - bBase * S * Math.exp(bBase * T) * cumulativeDistribution(d1)
+                        : -S * Math.exp(bBase * T) * normalPDF(d1) * rawVol / (2 * Math.sqrt(T)) + bBase * S * Math.exp(bBase * T) * cumulativeDistribution(-d1);
+                    theta = (thetaAnnual / 365) * kurCarpan;
+                }
+
+                return { row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV, volFark, delta, theta };
             });
 
             // Sıralama
@@ -431,6 +473,15 @@
                 } else if (sortCol === 'MarketVol') {
                     valA = a.row['MarketVol'] != null ? a.row['MarketVol'] : -1;
                     valB = b.row['MarketVol'] != null ? b.row['MarketVol'] : -1;
+                } else if (sortCol === 'VolFark') {
+                    valA = a.volFark != null ? a.volFark : -Infinity;
+                    valB = b.volFark != null ? b.volFark : -Infinity;
+                } else if (sortCol === 'Delta') {
+                    valA = Math.abs(a.delta);
+                    valB = Math.abs(b.delta);
+                } else if (sortCol === 'Theta') {
+                    valA = a.theta;
+                    valB = b.theta;
                 } else {
                     valA = a.row[sortCol];
                     valB = b.row[sortCol];
@@ -458,7 +509,7 @@
             const tbody = document.getElementById('table-body');
             tbody.innerHTML = '';
 
-            computedData.forEach(({ row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV }) => {
+            computedData.forEach(({ row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV, volFark, delta, theta }) => {
                 const opsiyonId = row['Opsiyon'];
 
                 const tr = document.createElement('tr');
@@ -514,6 +565,15 @@
 
                     <!-- Market Vol -->
                     <td class="market-vol-col" style="display:none;">${row['MarketVol'] != null ? (row['MarketVol'] * 100).toFixed(2) + '%' : '-'}</td>
+
+                    <!-- Vol Fark -->
+                    <td class="market-vol-col" style="display:none; color:${volFark != null ? (volFark >= 0 ? '#198754' : '#dc3545') : ''}">${volFark != null ? volFark.toFixed(2) + '%' : '-'}</td>
+
+                    <!-- Delta -->
+                    <td class="greeks-col" style="display:none;">${delta.toFixed(4)}</td>
+
+                    <!-- Theta -->
+                    <td class="greeks-col" style="display:none;">${theta.toFixed(2)} ₺</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -521,6 +581,13 @@
             // Market Vol sütun görünürlüğünü koru
             if (marketVolVisible) {
                 document.querySelectorAll('.market-vol-col').forEach(el => {
+                    el.style.display = '';
+                });
+            }
+
+            // Greeks sütun görünürlüğünü koru
+            if (greeksVisible) {
+                document.querySelectorAll('.greeks-col').forEach(el => {
                     el.style.display = '';
                 });
             }
