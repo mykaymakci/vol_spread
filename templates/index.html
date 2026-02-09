@@ -81,6 +81,8 @@
                         <th onclick="sortTable('FiyatRaw')" class="sort-icon" id="th-FiyatRaw">Teorik Fiyat</th>
                         <th>Spread (Kuruş)</th>
                         <th>Spread Vol (%)</th>
+                        <th onclick="sortTable('VoldanKr')" class="sort-icon" id="th-VoldanKr">Voldan Kr</th>
+                        <th onclick="sortTable('KrdenVol')" class="sort-icon" id="th-KrdenVol">Krden Vol</th>
                         <th>Ask IV</th>
                         <th>Ask Fiyat</th>
                     </tr>
@@ -309,14 +311,73 @@
                 return true;
             });
 
-            // Sıralama
-            filteredData.sort((a, b) => {
-                let valA = a[sortCol];
-                let valB = b[sortCol];
+            // Hesaplanmış değerleri önceden hesapla (sıralama için gerekli)
+            let computedData = filteredData.map(row => {
+                const opsiyonId = row['Opsiyon'];
+                const spreadTL = spreadTLState[opsiyonId] !== undefined ? spreadTLState[opsiyonId] : 0;
+                const spreadVol = spreadVolState[opsiyonId] !== undefined ? spreadVolState[opsiyonId] : 0;
 
-                if (['Spot Fiyat', 'Volatilite', 'FiyatRaw'].includes(sortCol)) {
-                    valA = parseFloat(valA);
-                    valB = parseFloat(valB);
+                const rawVol = parseFloat(row['VolatiliteRaw']);
+                const S = parseFloat(row['Spot Fiyat']);
+                const K = parseFloat(row['Strike']);
+                const T = parseFloat(row['T']);
+                const type = row['Tip'];
+                const usdtry = parseFloat(row['Kur']);
+                const carpan = parseFloat(row['Carpan']);
+
+                const newSigma = rawVol + (spreadVol / 100.0);
+                const newPriceUSD = blackScholes(S, K, T, newSigma, type);
+                let newPriceTRL = newPriceUSD * usdtry * carpan;
+                newPriceTRL += (spreadTL / 100.0);
+
+                const basePriceUSD = blackScholes(S, K, T, rawVol, type);
+                const basePriceTRL = basePriceUSD * usdtry * carpan;
+
+                let kurusIndicator = 0;
+                if (spreadVol !== 0) {
+                    const volSpreadPriceTRL = newPriceUSD * usdtry * carpan;
+                    kurusIndicator = (volSpreadPriceTRL - basePriceTRL) * 100;
+                }
+
+                let volIndicator = 0;
+                if (spreadTL !== 0 && usdtry > 0 && carpan > 0) {
+                    const kurusOnlyPriceTRL = basePriceTRL + (spreadTL / 100.0);
+                    const kurusOnlyPriceUSD = kurusOnlyPriceTRL / (usdtry * carpan);
+                    if (kurusOnlyPriceUSD > 0) {
+                        const kurusIV = getImpliedVolatility(kurusOnlyPriceUSD, S, K, T, type);
+                        volIndicator = (kurusIV - rawVol) * 100;
+                    }
+                }
+
+                let targetPriceUSD = 0;
+                if (usdtry > 0 && carpan > 0) {
+                    targetPriceUSD = newPriceTRL / (usdtry * carpan);
+                }
+                let askIV = 0;
+                if (targetPriceUSD > 0) {
+                    askIV = getImpliedVolatility(targetPriceUSD, S, K, T, type);
+                }
+
+                return { row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV };
+            });
+
+            // Sıralama
+            computedData.sort((a, b) => {
+                let valA, valB;
+
+                if (sortCol === 'VoldanKr') {
+                    valA = a.kurusIndicator;
+                    valB = b.kurusIndicator;
+                } else if (sortCol === 'KrdenVol') {
+                    valA = a.volIndicator;
+                    valB = b.volIndicator;
+                } else {
+                    valA = a.row[sortCol];
+                    valB = b.row[sortCol];
+                    if (['Spot Fiyat', 'Volatilite', 'FiyatRaw'].includes(sortCol)) {
+                        valA = parseFloat(valA);
+                        valB = parseFloat(valB);
+                    }
                 }
 
                 if (valA < valB) return sortAsc ? -1 : 1;
@@ -337,49 +398,8 @@
             const tbody = document.getElementById('table-body');
             tbody.innerHTML = '';
 
-            filteredData.forEach(row => {
+            computedData.forEach(({ row, spreadTL, spreadVol, newPriceTRL, kurusIndicator, volIndicator, askIV }) => {
                 const opsiyonId = row['Opsiyon'];
-                
-                // State değerlerini al
-                const spreadTL = spreadTLState[opsiyonId] !== undefined ? spreadTLState[opsiyonId] : 0;
-                const spreadVol = spreadVolState[opsiyonId] !== undefined ? spreadVolState[opsiyonId] : 0;
-                
-                // --- Ask Fiyat Hesaplama ---
-                // 1. Girdiler
-                const rawVol = parseFloat(row['VolatiliteRaw']);
-                const S = parseFloat(row['Spot Fiyat']);
-                const K = parseFloat(row['Strike']);
-                const T = parseFloat(row['T']);
-                const type = row['Tip'];
-                const usdtry = parseFloat(row['Kur']);
-                const carpan = parseFloat(row['Carpan']);
-                
-                // 2. Yeni Volatilite (Spread Vol Uygula)
-                const newSigma = rawVol + (spreadVol / 100.0);
-                
-                // 3. Teorik Fiyat (USD) - Sadece vol spread ile
-                const newPriceUSD = blackScholes(S, K, T, newSigma, type);
-                
-                // 4. TRL'ye Çevir
-                let newPriceTRL = newPriceUSD * usdtry * carpan;
-                
-                // 5. Spread TL ekle
-                newPriceTRL += (spreadTL / 100.0);
-                
-                // --- Ask IV Hesaplama ---
-                // Hedef Fiyat (USD cinsinden)
-                // newPriceTRL (Ask Fiyat) = (FiyatUSD * Kur * Carpan)
-                // Yani: FiyatUSD = newPriceTRL / (Kur * Carpan)
-                let targetPriceUSD = 0;
-                if (usdtry > 0 && carpan > 0) {
-                    targetPriceUSD = newPriceTRL / (usdtry * carpan);
-                }
-                
-                // IV Hesapla
-                let askIV = 0;
-                if (targetPriceUSD > 0) {
-                    askIV = getImpliedVolatility(targetPriceUSD, S, K, T, type);
-                }
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -419,6 +439,12 @@
                         </div>
                     </td>
                     
+                    <!-- Kr Gösterge (Vol'den) -->
+                    <td class="text-muted">${kurusIndicator !== 0 ? kurusIndicator.toFixed(2) : '-'}</td>
+
+                    <!-- Vol Gösterge (Kr'den) -->
+                    <td class="text-muted">${volIndicator !== 0 ? volIndicator.toFixed(2) + '%' : '-'}</td>
+
                     <!-- Ask IV -->
                     <td class="text-warning">${(askIV * 100).toFixed(2)}%</td>
 
