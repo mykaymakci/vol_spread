@@ -229,8 +229,14 @@
         }
 
         function populateFilters() {
-            // Vade Filtresi
-            const vades = [...new Set(globalData.map(item => item.Vade))].sort();
+            // Vade Filtresi - Tarihe göre sırala
+            const parseDate = (dateStr) => {
+                const [day, month, year] = dateStr.split('.');
+                return new Date(year, month - 1, day);
+            };
+            const vades = [...new Set(globalData.map(item => item.Vade))].sort((a, b) => {
+                return parseDate(a) - parseDate(b);
+            });
             const selectVade = document.getElementById('filter-vade');
             const currentVade = selectVade.value;
             selectVade.innerHTML = '<option value="">Tümü</option>';
@@ -482,6 +488,14 @@
                 } else if (sortCol === 'Theta') {
                     valA = a.theta;
                     valB = b.theta;
+                } else if (sortCol === 'Vade') {
+                    // Tarih sıralaması için DD.MM.YYYY formatını parse et
+                    const parseDate = (dateStr) => {
+                        const [day, month, year] = dateStr.split('.');
+                        return new Date(year, month - 1, day);
+                    };
+                    valA = parseDate(a.row[sortCol]);
+                    valB = parseDate(b.row[sortCol]);
                 } else {
                     valA = a.row[sortCol];
                     valB = b.row[sortCol];
