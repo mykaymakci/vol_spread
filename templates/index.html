@@ -229,41 +229,83 @@
         }
 
         function populateFilters() {
-            // Vade Filtresi - Tarihe göre sırala
+            const tipFilter = document.getElementById('filter-tip').value;
+            const vadeFilter = document.getElementById('filter-vade').value;
+            const dayanakFilter = document.getElementById('filter-dayanak').value;
+
             const parseDate = (dateStr) => {
                 const [day, month, year] = dateStr.split('.');
                 return new Date(year, month - 1, day);
             };
-            const vades = [...new Set(globalData.map(item => item.Vade))].sort((a, b) => {
+
+            // Dayanak dropdown'ı için: Tip ve Vade'ye göre filtrele
+            let dataForDayanak = globalData.filter(row => {
+                if (tipFilter && row.Tip !== tipFilter) return false;
+                if (vadeFilter && row.Vade !== vadeFilter) return false;
+                return true;
+            });
+            const dayanaklar = [...new Set(dataForDayanak.map(item => item.Dayanak))].sort();
+            updateDropdown('filter-dayanak', dayanaklar, dayanakFilter);
+
+            // Tip dropdown'ı için: Dayanak ve Vade'ye göre filtrele
+            let dataForTip = globalData.filter(row => {
+                if (dayanakFilter && row.Dayanak !== dayanakFilter) return false;
+                if (vadeFilter && row.Vade !== vadeFilter) return false;
+                return true;
+            });
+            const tipler = [...new Set(dataForTip.map(item => item.Tip))].sort();
+            updateDropdown('filter-tip', tipler, tipFilter, true);
+
+            // Vade dropdown'ı için: Dayanak ve Tip'e göre filtrele
+            let dataForVade = globalData.filter(row => {
+                if (dayanakFilter && row.Dayanak !== dayanakFilter) return false;
+                if (tipFilter && row.Tip !== tipFilter) return false;
+                return true;
+            });
+            const vades = [...new Set(dataForVade.map(item => item.Vade))].sort((a, b) => {
                 return parseDate(a) - parseDate(b);
             });
-            const selectVade = document.getElementById('filter-vade');
-            const currentVade = selectVade.value;
-            selectVade.innerHTML = '<option value="">Tümü</option>';
-            vades.forEach(vade => {
-                const option = document.createElement('option');
-                option.value = vade;
-                option.innerText = vade;
-                selectVade.appendChild(option);
-            });
-            selectVade.value = currentVade;
+            updateDropdown('filter-vade', vades, vadeFilter);
+        }
 
-            // Dayanak Filtresi
-            const dayanaklar = [...new Set(globalData.map(item => item.Dayanak))].sort();
-            const selectDayanak = document.getElementById('filter-dayanak');
-            const currentDayanak = selectDayanak.value;
-            selectDayanak.innerHTML = '<option value="">Tümü</option>';
-            dayanaklar.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item;
-                option.innerText = item;
-                selectDayanak.appendChild(option);
-            });
-            selectDayanak.value = currentDayanak;
+        function updateDropdown(id, options, currentValue, isTip = false) {
+            const select = document.getElementById(id);
+            select.innerHTML = '<option value="">Tümü</option>';
+
+            if (isTip) {
+                // Tip için özel: Call/Put sırasını koru
+                if (options.includes('Call')) {
+                    const opt = document.createElement('option');
+                    opt.value = 'Call';
+                    opt.innerText = 'Call';
+                    select.appendChild(opt);
+                }
+                if (options.includes('Put')) {
+                    const opt = document.createElement('option');
+                    opt.value = 'Put';
+                    opt.innerText = 'Put';
+                    select.appendChild(opt);
+                }
+            } else {
+                options.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item;
+                    option.innerText = item;
+                    select.appendChild(option);
+                });
+            }
+
+            // Eğer mevcut değer hala seçenekler arasındaysa, onu seç
+            if (options.includes(currentValue) || currentValue === '') {
+                select.value = currentValue;
+            } else {
+                select.value = ''; // Mevcut değer artık geçerli değilse, "Tümü"ye reset et
+            }
         }
 
         function applyFilters() {
-            renderTable();
+            populateFilters(); // Önce dropdown'ları güncelle
+            renderTable(); // Sonra tabloyu güncelle
         }
 
         function sortTable(column) {
